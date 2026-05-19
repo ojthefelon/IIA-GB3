@@ -1,0 +1,5 @@
+# 12 MHz clock
+set_io -nowarn CLK        35
+
+# RGB LED Driver
+set_io -nowarn LED_RED_N  39
