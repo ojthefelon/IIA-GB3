@@ -2,33 +2,42 @@
 `default_nettype none
 
 // Project entry point
-module top#(parameter CLKDIV_MAX = 1200000)(//parameter that can be overridden at compile time to adjust the clock divider for different clock frequencies
+module top#(parameter CLKDIV_MAX = 12000000)(//parameter that can be overridden at compile time to adjust the clock divider for different clock frequencies
 	input  CLK,
 	input  BTN_N, BTN1, BTN2, BTN3,
 	output LED1, LED2, LED3, LED4, LED5,
+	//output LED1,
 	output P1A1, P1A2, P1A3, P1A4, P1A7, P1A8, P1A9, P1A10
 );
 	// 7 segment control line bus
 	wire [7:0] seven_segment;
+	reg led_1hz = 0;
+	reg half_second = 0;
 
 	// Assign 7 segment control line bus to Pmod pins
 	assign { P1A10, P1A9, P1A8, P1A7, P1A4, P1A3, P1A2, P1A1 } = seven_segment;
+	assign LED1 = led_1hz;
+	assign LED2 = 0;
+	assign LED3 = 0;
+	assign LED4 = 0;
+	assign LED5 = 0;
 
 	// Display value register and increment bus
 	reg [7:0] display_value = 0;
 	wire [7:0] display_value_inc;
 
 	// Clock divider and pulse registers
-	reg [20:0] clkdiv = 0;
+	reg [23:0] clkdiv = 0;
 	reg clkdiv_pulse = 0;
 
 	// Combinatorial logic
-	assign LED1 = BTN1 && BTN2;                           
-	assign LED2 = BTN1 && BTN3;                     
-	assign LED3 = BTN2 && BTN3;                      
-	assign LED4 = !BTN_N;                  // BTN_N is active low
-	assign LED5 = BTN1 || BTN2 || BTN3 || !BTN_N; 
+	//assign LED1 = BTN1 && BTN2;                           
+	//assign LED2 = BTN1 && BTN3;                     
+	//assign LED3 = BTN2 && BTN3;                      
+	//assign LED4 = !BTN_N;                  // BTN_N is active low
+	//assign LED5 = BTN1 || BTN2 || BTN3 || !BTN_N; 
 
+	// 1Hz flashing LED
 
 	//Adding reset, start/stop and lap functionality
 	reg running = 0;
@@ -37,40 +46,64 @@ module top#(parameter CLKDIV_MAX = 1200000)(//parameter that can be overridden a
 
 	// Synchronous logic
 	always @(posedge CLK) begin
-		// Clock divider pulse generator
-		if (clkdiv == CLKDIV_MAX) begin
-			clkdiv <= 0;
-			clkdiv_pulse <= 1;
-		end else begin
-			clkdiv <= clkdiv + 1;
-			clkdiv_pulse <= 0;
-		end
-
-		// Timer and lap coutndown
-		if (clkdiv_pulse) begin
-			if (running)
-				display_value <= display_value_inc;
-			if (lap_timeout != 0)
-				lap_timeout <= lap_timeout - 1;
-		end
-
-		//START/STOP button
-		if (BTN3)
-			running <= 1;
-		if (BTN1)
-			running <= 0;
-
-		//LAP
-		if (BTN2) begin
-			lap_value <= display_value;
-			lap_timeout <=20;
-		end
-
-		//RESET
 		if (!BTN_N) begin
+			clkdiv <= 0;
+			clkdiv_pulse <= 0;
+			led_1hz <= 0;
+			half_second <= 0;
+
 			running <= 0;
 			display_value <= 0;
 			lap_timeout <= 0;
+
+		end else begin
+			clkdiv_pulse <= 0;
+			if (clkdiv == (CLKDIV_MAX/2 - 1)) begin
+				clkdiv <= 0;
+				led_1hz <= ~led_1hz;
+				half_second <= ~half_second;
+
+				if (half_second)
+					clkdiv_pulse <= 1;
+			end else begin
+				clkdiv <= clkdiv + 1;
+			end
+		
+		// Clock divider pulse generator
+		//if (clkdiv == CLKDIV_MAX) begin
+		//	clkdiv <= 0;
+		//	clkdiv_pulse <= 1;
+		//end else begin
+		//	clkdiv <= clkdiv + 1;
+		//	clkdiv_pulse <= 0;
+		//end
+
+			// Timer and lap coutndown
+			if (clkdiv_pulse) begin
+				if (running)
+					display_value <= display_value_inc;
+				if (lap_timeout != 0)
+					lap_timeout <= lap_timeout - 1;
+			end
+	//
+	//		//START/STOP button
+			if (BTN3)
+				running <= 1;
+			if (BTN1)
+				running <= 0;
+	//
+	//		//LAP
+			if (BTN2) begin
+				lap_value <= display_value;
+				lap_timeout <=20;
+			end
+	//
+			//RESET
+	//		if (!BTN_N) begin
+	//			running <= 0;
+	//			display_value <= 0;
+	//			lap_timeout <= 0;
+	//		end
 		end
 
 	end
