@@ -1,5 +1,6 @@
+# CROSS=riscv32-unknown-elf-
+CROSS=/usr/local/apps/GB3-RISCV/riscv32imc/bin/riscv32-unknown-elf-
 
-CROSS=riscv32-unknown-elf-
 CFLAGS=
 
 # ---- iCE40 HX8K Breakout Board ----
@@ -69,7 +70,19 @@ icebreaker_syn.v: icebreaker.json
 	yosys -p 'read_json icebreaker.json; write_verilog icebreaker_syn.v'
 
 icebreaker.asc: icebreaker.pcf icebreaker.json
-	nextpnr-ice40 --freq 13 --up5k --package sg48 --asc icebreaker.asc --pcf icebreaker.pcf --json icebreaker.json
+	nextpnr-ice40 --freq 16 --up5k --package sg48 --asc icebreaker.asc --pcf icebreaker.pcf --json icebreaker.json
+# originally freq 13
+
+freqsweep:
+	@echo "Frequency sweep (requires icebreaker.json to exist)..."
+	@for freq in 12 14 16 18 20 22 24; do \
+		echo -n "Testing $$freq MHz: "; \
+		nextpnr-ice40 --freq $$freq --up5k --package sg48 \
+			--asc icebreaker_sweep.asc \
+			--pcf icebreaker.pcf \
+			--json icebreaker.json 2>&1 | \
+			grep -E "Max frequency|PASS|FAIL" | tail -1; \
+	done
 
 icebreaker.bin: icebreaker.asc
 	icetime -d up5k -c 12 -mtr icebreaker.rpt icebreaker.asc
@@ -90,9 +103,26 @@ icebreaker_fw.elf: icebreaker_sections.lds start.s firmware.c
 
 icebreaker_fw.hex: icebreaker_fw.elf
 	$(CROSS)objcopy -O verilog icebreaker_fw.elf icebreaker_fw.hex
-
+	
 icebreaker_fw.bin: icebreaker_fw.elf
 	$(CROSS)objcopy -O binary icebreaker_fw.elf icebreaker_fw.bin
+
+# blink edit
+icebreaker_blink.elf: icebreaker_sections.lds start.s blink.c
+	$(CROSS)gcc $(CFLAGS) -DICEBREAKER -mabi=ilp32 -march=rv32ic \
+	-Wl,-Bstatic,-T,icebreaker_sections.lds,--strip-debug \
+	-ffreestanding -nostdlib -o icebreaker_blink.elf start.s blink.c
+
+icebreaker_blink.hex: icebreaker_blink.elf
+	$(CROSS)objcopy -O verilog icebreaker_blink.elf icebreaker_blink.hex
+
+icebreaker_blink.bin: icebreaker_blink.elf
+	$(CROSS)objcopy -O binary icebreaker_blink.elf icebreaker_blink.bin
+
+icebprog_blink: icebreaker.bin icebreaker_blink.bin
+	iceprog icebreaker.bin
+	iceprog -o 1M icebreaker_blink.bin
+
 
 # ---- Testbench for SPI Flash Model ----
 

@@ -142,7 +142,9 @@ module picosoc (
 		.ENABLE_DIV(ENABLE_DIV),
 		.ENABLE_FAST_MUL(ENABLE_FAST_MUL),
 		.ENABLE_IRQ(1),
-		.ENABLE_IRQ_QREGS(ENABLE_IRQ_QREGS)
+		.ENABLE_IRQ_QREGS(ENABLE_IRQ_QREGS),
+		//Add line for pipelining
+		.ENABLE_REGS_DUALPORT(1)
 	) cpu (
 		.clk         (clk        ),
 		.resetn      (resetn     ),

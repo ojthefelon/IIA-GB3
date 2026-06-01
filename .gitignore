@@ -35,3 +35,14 @@
 /synth.log
 /synth.v
 .*.swp
+*.bin
+*.elf
+*.hex
+*.json
+*.log
+*.rpt
+*.asc
+*.vcd
+*.vvp
+*_syn.v
+*_sections.lds

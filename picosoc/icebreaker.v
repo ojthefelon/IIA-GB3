@@ -38,6 +38,8 @@ module icebreaker (
 	output ledr_n,
 	output ledg_n,
 
+	output P1A1, P1A2, P1A3, P1A4, P1A7, P1A8, P1A9, P1A10,
+
 	output flash_csb,
 	output flash_clk,
 	inout  flash_io0,
@@ -50,7 +52,27 @@ module icebreaker (
 	reg [5:0] reset_cnt = 0;
 	wire resetn = &reset_cnt;
 
-	always @(posedge clk) begin
+	// Edit for phase locked loop (PLL), Set DIVR, DIVF, DIVQ for clock freq
+	wire clk_pll;
+	wire pll_locked;
+
+	
+	SB_PLL40_PAD #(
+		.FEEDBACK_PATH("SIMPLE"),
+		.DIVR(4'b0000), // DIVR = 0
+		.DIVF(7'b0111111), // DIVF = 63
+		.DIVQ(3'b101), // DIVQ = 5
+		.FILTER_RANGE(3'b001)
+	)pll(
+		.PACKAGEPIN(clk),
+		.PLLOUTGLOBAL(clk_pll),
+		.LOCK(pll_locked),
+		.RESETB(1'b1),
+		.BYPASS(1'b0)
+	);
+
+
+	always @(posedge clk_pll) begin
 		reset_cnt <= reset_cnt + !resetn;
 	end
 
@@ -88,9 +110,22 @@ module icebreaker (
 	reg  [31:0] iomem_rdata;
 
 	reg [31:0] gpio;
-	assign leds = gpio;
+	assign leds = gpio[7:0];
 
-	always @(posedge clk) begin
+	// GB3-RISCV: 7 segment control line bus
+	wire [7:0] seven_segment;
+	// Assign 7 segment control line bus to Pmod pins
+	assign { P1A10, P1A9, P1A8, P1A7, P1A4, P1A3, P1A2, P1A1 } = seven_segment;
+	// 7 segment display control Pmod 1A
+	seven_seg_ctrl seven_segment_ctrl (
+		.CLK(clk_pll),
+		.din(gpio[15:8]),
+		.dout(seven_segment)
+	);
+    // GB3-RISCV: END
+
+
+	always @(posedge clk_pll) begin
 		if (!resetn) begin
 			gpio <= 0;
 		end else begin
@@ -106,14 +141,19 @@ module icebreaker (
 		end
 	end
 
+
 	picosoc #(
-		.BARREL_SHIFTER(0),
-		.ENABLE_MUL(0),
+		.BARREL_SHIFTER(1),
+		.ENABLE_MUL(1),
 		.ENABLE_DIV(0),
 		.ENABLE_FAST_MUL(1),
+		//Added Enable for PLL
+		.ENABLE_COMPRESSED(1),
+		.ENABLE_COUNTERS(0),
+		.ENABLE_IRQ_QREGS(0),
 		.MEM_WORDS(MEM_WORDS)
 	) soc (
-		.clk          (clk         ),
+		.clk          (clk_pll     ),
 		.resetn       (resetn      ),
 
 		.ser_tx       (ser_tx      ),
@@ -149,3 +189,75 @@ module icebreaker (
 		.iomem_rdata  (iomem_rdata )
 	);
 endmodule
+
+// GB3-RISCV START
+// Seven segment controller
+// Switches quickly between the two parts of the display
+// to create the illusion of both halves being illuminated
+// at the same time.
+module seven_seg_ctrl (
+	input CLK,
+	input [7:0] din,
+	output reg [7:0] dout
+);
+	wire [6:0] lsb_digit;
+	wire [6:0] msb_digit;
+
+	seven_seg_hex msb_nibble (
+		.din(din[7:4]),
+		.dout(msb_digit)
+	);
+
+	seven_seg_hex lsb_nibble (
+		.din(din[3:0]),
+		.dout(lsb_digit)
+	);
+
+	reg [9:0] clkdiv = 0;
+	reg clkdiv_pulse = 0;
+	reg msb_not_lsb = 0;
+
+	always @(posedge CLK) begin
+		clkdiv <= clkdiv + 1;
+		clkdiv_pulse <= &clkdiv;
+		msb_not_lsb <= msb_not_lsb ^ clkdiv_pulse;
+
+		if (clkdiv_pulse) begin
+			if (msb_not_lsb) begin
+				dout[6:0] <= ~msb_digit;
+				dout[7] <= 0;
+			end else begin
+				dout[6:0] <= ~lsb_digit;
+				dout[7] <= 1;
+			end
+		end
+	end
+endmodule
+
+// Convert 4bit numbers to 7 segments
+module seven_seg_hex (
+	input [3:0] din,
+	output reg [6:0] dout
+);
+	always @*
+		case (din)
+			4'h0: dout = 7'b 0111111;
+			4'h1: dout = 7'b 0000110;
+			4'h2: dout = 7'b 1011011;
+			4'h3: dout = 7'b 1001111;
+			4'h4: dout = 7'b 1100110;
+			4'h5: dout = 7'b 1101101;
+			4'h6: dout = 7'b 1111101;
+			4'h7: dout = 7'b 0000111;
+			4'h8: dout = 7'b 1111111;
+			4'h9: dout = 7'b 1101111;
+			4'hA: dout = 7'b 1110111;
+			4'hB: dout = 7'b 1111100;
+			4'hC: dout = 7'b 0111001;
+			4'hD: dout = 7'b 1011110;
+			4'hE: dout = 7'b 1111001;
+			4'hF: dout = 7'b 1110001;
+			default: dout = 7'b 1000000;
+		endcase
+endmodule
+// GB3-RISCV END
