@@ -151,7 +151,8 @@ module icebreaker (
 		.ENABLE_COMPRESSED(1),
 		.ENABLE_COUNTERS(0),
 		.ENABLE_IRQ_QREGS(0),
-		.MEM_WORDS(MEM_WORDS)
+		//.ENABLE_REGS_16E(1),
+		.MEM_WORDS(MEM_WORDS),
 	) soc (
 		.clk          (clk_pll     ),
 		.resetn       (resetn      ),

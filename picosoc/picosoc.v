@@ -103,6 +103,15 @@ module picosoc (
 	wire [3:0] mem_wstrb;
 	wire [31:0] mem_rdata;
 
+	//the wires leading to the prefetch module
+	wire cpu_mem_valid;
+	wire cpu_mem_instr;
+	wire cpu_mem_ready;
+	wire [31:0] cpu_mem_addr;
+	wire [31:0] cpu_mem_wdata;
+	wire [3:0] cpu_mem_wstrb;
+	wire [31:0] cpu_mem_rdata;
+
 	wire spimem_ready;
 	wire [31:0] spimem_rdata;
 
@@ -124,12 +133,29 @@ module picosoc (
 	wire [31:0] simpleuart_reg_dat_do;
 	wire        simpleuart_reg_dat_wait;
 
-	assign mem_ready = (iomem_valid && iomem_ready) || spimem_ready || ram_ready || spimemio_cfgreg_sel ||
-			simpleuart_reg_div_sel || (simpleuart_reg_dat_sel && !simpleuart_reg_dat_wait);
+	// assign mem_ready = (iomem_valid && iomem_ready) || spimem_ready || ram_ready || spram_ready ||
+    //     spimemio_cfgreg_sel || simpleuart_reg_div_sel || 
+    //     (simpleuart_reg_dat_sel && !simpleuart_reg_dat_wait);
 
-	assign mem_rdata = (iomem_valid && iomem_ready) ? iomem_rdata : spimem_ready ? spimem_rdata : ram_ready ? ram_rdata :
-			spimemio_cfgreg_sel ? spimemio_cfgreg_do : simpleuart_reg_div_sel ? simpleuart_reg_div_do :
-			simpleuart_reg_dat_sel ? simpleuart_reg_dat_do : 32'h 0000_0000;
+	// assign mem_rdata = (iomem_valid && iomem_ready) ? iomem_rdata :
+	// 		spimem_ready        ? spimem_rdata :
+	// 		ram_ready           ? ram_rdata :
+	// 		spram_ready         ? spram_rdata :
+	// 		spimemio_cfgreg_sel ? spimemio_cfgreg_do :
+	// 		simpleuart_reg_div_sel ? simpleuart_reg_div_do :
+	// 		simpleuart_reg_dat_sel ? simpleuart_reg_dat_do : 32'h 0000_0000;
+	
+	assign mem_ready = (iomem_valid && iomem_ready) || spimem_ready || ram_ready || 
+        spimemio_cfgreg_sel || simpleuart_reg_div_sel || 
+        (simpleuart_reg_dat_sel && !simpleuart_reg_dat_wait);
+
+	assign mem_rdata = (iomem_valid && iomem_ready) ? iomem_rdata :
+        spimem_ready ? spimem_rdata :
+        ram_ready ? ram_rdata :
+        spimemio_cfgreg_sel ? spimemio_cfgreg_do :
+        simpleuart_reg_div_sel ? simpleuart_reg_div_do :
+        simpleuart_reg_dat_sel ? simpleuart_reg_dat_do : 32'h0000_0000;
+
 
 	picorv32 #(
 		.STACKADDR(STACKADDR),
@@ -142,21 +168,45 @@ module picosoc (
 		.ENABLE_DIV(ENABLE_DIV),
 		.ENABLE_FAST_MUL(ENABLE_FAST_MUL),
 		.ENABLE_IRQ(1),
-		.ENABLE_IRQ_QREGS(ENABLE_IRQ_QREGS),
-		//Add line for pipelining
-		.ENABLE_REGS_DUALPORT(1)
+		.ENABLE_IRQ_QREGS(ENABLE_IRQ_QREGS)
 	) cpu (
 		.clk         (clk        ),
 		.resetn      (resetn     ),
+		.mem_valid   (cpu_mem_valid  ),
+		.mem_instr   (cpu_mem_instr  ),
+		.mem_ready   (cpu_mem_ready  ),
+		.mem_addr    (cpu_mem_addr   ),
+		.mem_wdata   (cpu_mem_wdata  ),
+		.mem_wstrb   (cpu_mem_wstrb  ),
+		.mem_rdata   (cpu_mem_rdata  ),
+		.irq         (irq        )
+	);
+
+
+	instr_prefetch #(
+		.DEPTH(4),
+		.FLASH_LO(32'h 0010_0000),
+		.FLASH_HI(32'h 0FFF_FFFF)
+	) prefetch (
+		.clk         (clk        ),
+		.resetn      (resetn     ),
+		.cpu_mem_valid   (cpu_mem_valid  ),
+		.cpu_mem_instr   (cpu_mem_instr  ),
+		.cpu_mem_ready   (cpu_mem_ready  ),
+		.cpu_mem_addr    (cpu_mem_addr   ),
+		.cpu_mem_wdata   (cpu_mem_wdata  ),
+		.cpu_mem_wstrb   (cpu_mem_wstrb  ),
+		.cpu_mem_rdata   (cpu_mem_rdata  ),
 		.mem_valid   (mem_valid  ),
 		.mem_instr   (mem_instr  ),
 		.mem_ready   (mem_ready  ),
 		.mem_addr    (mem_addr   ),
 		.mem_wdata   (mem_wdata  ),
 		.mem_wstrb   (mem_wstrb  ),
-		.mem_rdata   (mem_rdata  ),
-		.irq         (irq        )
+		.mem_rdata   (mem_rdata  )
 	);
+
+
 
 	spimemio spimemio (
 		.clk    (clk),
@@ -219,7 +269,51 @@ module picosoc (
 		.wdata(mem_wdata),
 		.rdata(ram_rdata)
 	);
+
+
+
+	// // adding SPRAM data memory at 0x00010000-0x00017FFF (32 KB)
+	// wire        spram_sel = (mem_addr[31:16] == 16'h0001);
+	// wire [13:0] spram_addr = mem_addr[15:2];   // word address, 8K words = 32 KB
+	// wire [31:0] spram_rdata;
+	// reg         spram_ready;
+
+	// wire [15:0] spram_rdata_lo, spram_rdata_hi;
+	// assign spram_rdata = {spram_rdata_hi, spram_rdata_lo};
+
+	// SB_SPRAM256KA spram_lo (
+	// 	.DATAIN     (mem_wdata[15:0]),
+	// 	.ADDRESS    (spram_addr),
+	// 	.MASKWREN   ({mem_wstrb[1], mem_wstrb[1],
+	// 				mem_wstrb[0], mem_wstrb[0]}),
+	// 	.WREN       (spram_sel && mem_valid && |mem_wstrb[1:0]),
+	// 	.CHIPSELECT (spram_sel && mem_valid),
+	// 	.CLOCK      (clk),
+	// 	.STANDBY    (1'b0), .SLEEP(1'b0), .POWEROFF(1'b1),
+	// 	.DATAOUT    (spram_rdata_lo)
+	// );
+
+	// SB_SPRAM256KA spram_hi (
+	// 	.DATAIN     (mem_wdata[31:16]),
+	// 	.ADDRESS    (spram_addr),
+	// 	.MASKWREN   ({mem_wstrb[3], mem_wstrb[3],
+	// 				mem_wstrb[2], mem_wstrb[2]}),
+	// 	.WREN       (spram_sel && mem_valid && |mem_wstrb[3:2]),
+	// 	.CHIPSELECT (spram_sel && mem_valid),
+	// 	.CLOCK      (clk),
+	// 	.STANDBY    (1'b0), .SLEEP(1'b0), .POWEROFF(1'b1),
+	// 	.DATAOUT    (spram_rdata_hi)
+	// );
+
+	// // 1-cycle response
+	// always @(posedge clk) begin
+	// 	if (!resetn) spram_ready <= 0;
+	// 	else         spram_ready <= spram_sel && mem_valid && !spram_ready;
+	// end
 endmodule
+
+
+
 
 // Implementation note:
 // Replace the following two modules with wrappers for your SRAM cells.
@@ -235,11 +329,16 @@ module picosoc_regs (
 );
 	reg [31:0] regs [0:31];
 
-	always @(posedge clk)
+	always @(posedge clk) begin
 		if (wen) regs[waddr[4:0]] <= wdata;
-
+		// synchrnous reads
+		//rdata1 <= regs[raddr1[4:0]];
+		//rdata2 <= regs[raddr2[4:0]];
+	end
 	assign rdata1 = regs[raddr1[4:0]];
 	assign rdata2 = regs[raddr2[4:0]];
+	
+	
 endmodule
 
 module picosoc_mem #(

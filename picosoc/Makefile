@@ -57,10 +57,10 @@ icebsim: icebreaker_tb.vvp icebreaker_fw.hex
 icebsynsim: icebreaker_syn_tb.vvp icebreaker_fw.hex
 	vvp -N $< +firmware=icebreaker_fw.hex
 
-icebreaker.json: icebreaker.v ice40up5k_spram.v spimemio.v simpleuart.v picosoc.v ../picorv32.v
+icebreaker.json: icebreaker.v ice40up5k_spram.v spimemio.v simpleuart.v picosoc.v instr_prefetch.v ../picorv32.v
 	yosys -ql icebreaker.log -p 'synth_ice40 -dsp -top icebreaker -json icebreaker.json' $^
 
-icebreaker_tb.vvp: icebreaker_tb.v icebreaker.v ice40up5k_spram.v spimemio.v simpleuart.v picosoc.v ../picorv32.v spiflash.v
+icebreaker_tb.vvp: icebreaker_tb.v icebreaker.v ice40up5k_spram.v spimemio.v simpleuart.v picosoc.v instr_prefetch.v ../picorv32.v spiflash.v
 	iverilog -s testbench -o $@ $^ `yosys-config --datdir/ice40/cells_sim.v` -DNO_ICE40_DEFAULT_ASSIGNMENTS
 
 icebreaker_syn_tb.vvp: icebreaker_tb.v icebreaker_syn.v spiflash.v
@@ -70,7 +70,8 @@ icebreaker_syn.v: icebreaker.json
 	yosys -p 'read_json icebreaker.json; write_verilog icebreaker_syn.v'
 
 icebreaker.asc: icebreaker.pcf icebreaker.json
-	nextpnr-ice40 --freq 16 --up5k --package sg48 --asc icebreaker.asc --pcf icebreaker.pcf --json icebreaker.json
+#	nextpnr-ice40 --freq 22 --up5k --package sg48 --asc icebreaker.asc --pcf icebreaker.pcf --json icebreaker.json
+	nextpnr-ice40 --freq 24 --seed 9 --up5k --package sg48 --asc icebreaker.asc --pcf icebreaker.pcf --json icebreaker.json
 # originally freq 13
 
 freqsweep:
@@ -84,8 +85,19 @@ freqsweep:
 			grep -E "Max frequency|PASS|FAIL" | tail -1; \
 	done
 
+seedsweep:
+	@echo "Testing different nextpnr seeds..."
+	@for seed in 1 2 3 4 5 6 7 8 9 10; do \
+		echo "=== Seed $$seed ==="; \
+		nextpnr-ice40 --freq 24 --seed $$seed --up5k --package sg48 \
+			--asc icebreaker_sweep.asc \
+			--pcf icebreaker.pcf \
+			--json icebreaker.json 2>&1; \
+	done
+	@echo "Seed sweep complete"
+
 icebreaker.bin: icebreaker.asc
-	icetime -d up5k -c 12 -mtr icebreaker.rpt icebreaker.asc
+	icetime -d up5k -c 22 -mtr icebreaker.rpt icebreaker.asc
 	icepack icebreaker.asc icebreaker.bin
 
 icebprog: icebreaker.bin icebreaker_fw.bin
@@ -123,6 +135,38 @@ icebprog_blink: icebreaker.bin icebreaker_blink.bin
 	iceprog icebreaker.bin
 	iceprog -o 1M icebreaker_blink.bin
 
+# bubble benchmarking
+icebreaker_bubble.elf: icebreaker_sections.lds start.s bubble.c
+	$(CROSS)gcc $(CFLAGS) -DICEBREAKER -mabi=ilp32 -march=rv32im \
+	-Wl,-Bstatic,-T,icebreaker_sections.lds,--strip-debug \
+	-ffreestanding -nostdlib -o icebreaker_bubble.elf start.s bubble.c
+
+icebreaker_bubble.hex: icebreaker_bubble.elf
+	$(CROSS)objcopy -O verilog icebreaker_bubble.elf icebreaker_bubble.hex
+
+icebreaker_bubble.bin: icebreaker_bubble.elf
+	$(CROSS)objcopy -O binary icebreaker_bubble.elf icebreaker_bubble.bin
+
+icebprog_bubble: icebreaker.bin icebreaker_bubble.bin
+	iceprog icebreaker.bin
+	iceprog -o 1M icebreaker_bubble.bin
+
+# matmul benchmarking
+
+icebreaker_matmul.elf: icebreaker_sections.lds start.s matmul.c
+	$(CROSS)gcc $(CFLAGS) -DICEBREAKER -mabi=ilp32 -march=rv32im \
+	-Wl,-Bstatic,-T,icebreaker_sections.lds,--strip-debug \
+	-ffreestanding -nostdlib -o icebreaker_matmul.elf start.s matmul.c
+
+icebreaker_matmul.hex: icebreaker_matmul.elf
+	$(CROSS)objcopy -O verilog icebreaker_matmul.elf icebreaker_matmul.hex
+
+icebreaker_matmul.bin: icebreaker_matmul.elf
+	$(CROSS)objcopy -O binary icebreaker_matmul.elf icebreaker_matmul.bin
+
+icebprog_matmul: icebreaker.bin icebreaker_matmul.bin
+	iceprog icebreaker.bin
+	iceprog -o 1M icebreaker_matmul.bin
 
 # ---- Testbench for SPI Flash Model ----
 
